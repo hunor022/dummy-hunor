@@ -5,6 +5,7 @@
 #include <sensor_msgs/image_encodings.h>
 #include <cv_bridge/cv_bridge.h>
 #include <image_transport/image_transport.h>
+
 #include "ros/ros.h"
 #include "sensor_msgs/Image.h"
 #include "can_msgs/Frame.h"
@@ -14,16 +15,19 @@
 class dummy
 {
 private:
+	ros::NodeHandle nh;
+	image_transport::ImageTransport it(nh);
+
 	image_transport::Subscriber left_sub; //left and right image subscribers
 	image_transport::Subscriber right_sub;
 
-	image_transport::Publisher imgPub;
+	image_transport::Publisher imgPub; //pubs
 	ros::Publisher topicPub;
 
 	cv::Mat cvImgL; //left and right images
 	cv::Mat cvImgR;
 
-	double camera_fps;
+	double camera_fps = 0;
 	double camera_time = 0; //current time on each iteration
 
 public:
@@ -32,10 +36,6 @@ public:
 		ros::init(argc, argv, "dummy_hunor_node");
 
 		//Sub
-
-		ros::NodeHandle nh;
-		image_transport::ImageTransport it(nh);
-
 		left_sub = it.subscribe("/left/image_rect_color/raw", 1, callback); 
 		right_sub = it.subscribe("/right/image_rect_color/raw", 1, callback);
 
@@ -44,9 +44,8 @@ public:
 
 		
 		//Pub
-		ros::NodeHandle n1;
-		topicPub = n1.advertise<can_msgs::Frame>("/sent_messages", 1000);
-		ros::Timer timerSent = n1.createTimer(ros::Duration(1 / 50), sentPub);
+		topicPub = n.advertise<can_msgs::Frame>("/sent_messages", 1000);
+		ros::Timer timerSent = n.createTimer(ros::Duration(1 / 50), sentPub);
 
 		ros::spin();
 	}
@@ -54,7 +53,6 @@ public:
 
 	void callback(const sensor_msgs::Image::ConstPtr& img_left, const sensor_msgs::Image::ConstPtr& img_right)
 	{
-		//concatenation
 
 		//conversion
 		try
@@ -66,6 +64,8 @@ public:
 		{
 			ROS_ERROR_STREAM("cv_bridge exception: " << e.what());
 		}
+
+		//concatenation, van rá függvény v.concetanate
 
 		//dimensions
 		int rows = img_left->height;
@@ -79,20 +79,12 @@ public:
 		cvImgR.copyTo(result(cv::Rect(img_left->width, 0, img_right->width, img_right->height)));
 
 		//image Pub
-		ros::NodeHandle n0;
-		image_transport::ImageTransport it0(n0);
-
-		imgPub = it0.advertise("/dummy_img_hunor", 1);
+		imgPub = it.advertise("/dummy_img_hunor", 1);
 		
 		sensor_msgs::ImagePtr out = cv_bridge::CvImage(std_msgs::Header(), "bgr8", result).toImageMsg(); 
-
-		while (n0.ok())
-		{
-			imgPub.publish(out);
-		}
+		imgPub.publish(out);
 		
-		if (camera_time == 0) camera_fps = 0; //1. callback
-		
+		//camera fps
 		int tmp = camera_time;
 		camera_time = ros::Time::now();
 		if (camera_time != 0) camera_fps = 1.0 / (camera_time - tmp);
